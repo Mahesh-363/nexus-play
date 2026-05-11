@@ -1,0 +1,73 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: nova
+      POSTGRES_PASSWORD: nova
+      POSTGRES_DB: nova
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nova"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  api:
+    build: ./services/api
+    environment: &svc_env
+      DATABASE_URL: postgresql+asyncpg://nova:nova@postgres:5432/nova
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: change-me-in-prod
+      JWT_ALG: HS256
+      LIVEKIT_URL: ${LIVEKIT_URL:-}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    ports: ["8000:8000"]
+
+  matchmaking:
+    build: ./services/matchmaking
+    environment: *svc_env
+    depends_on:
+      redis: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+    ports: ["8001:8001"]
+
+  chat:
+    build: ./services/chat
+    environment: *svc_env
+    depends_on:
+      redis: { condition: service_healthy }
+    ports: ["8002:8002"]
+
+  analytics:
+    build: ./services/analytics
+    environment: *svc_env
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    ports: ["8003:8003"]
+
+  nginx:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports: ["8080:8080"]
+    depends_on: [api, matchmaking, chat, analytics]
+
+volumes:
+  pgdata:
