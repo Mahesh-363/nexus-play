@@ -241,9 +241,12 @@ export function useMatchmaking(opts: MatchmakingOptions = {}) {
         JSON.stringify({ type: "cancel", ticketId: ticketRef.current }),
       );
     }
+    cleanupTimers();
+    demoModeRef.current = false;
     lastJoinRef.current = null;
     ticketRef.current = null;
     setQueue(null);
+    setMatch(null);
     setStatus("idle");
   }, []);
 
