@@ -200,7 +200,12 @@ export function useMatchmaking(opts: MatchmakingOptions = {}) {
         setStatus("disconnected");
         return;
       }
-      // Reconnect with backoff if we were queued or connecting
+      // After 2 failed attempts with no successful open, fall back to demo
+      if (retriesRef.current >= 2 && lastJoinRef.current) {
+        setError("Backend unreachable — running demo simulation.");
+        startDemoMatch(lastJoinRef.current.game, lastJoinRef.current.mode);
+        return;
+      }
       if (retriesRef.current < maxRetries) {
         const attempt = retriesRef.current + 1;
         retriesRef.current = attempt;
@@ -213,7 +218,7 @@ export function useMatchmaking(opts: MatchmakingOptions = {}) {
         setError("Connection lost. Please retry.");
       }
     };
-  }, [url, token, maxRetries]);
+  }, [url, token, maxRetries, startDemoMatch]);
 
   const join = useCallback(
     (game: string, mode: string) => {
