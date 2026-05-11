@@ -57,13 +57,57 @@ export function useMatchmaking(opts: MatchmakingOptions = {}) {
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const heartbeat = useRef<ReturnType<typeof setInterval> | null>(null);
   const intentionalCloseRef = useRef(false);
+  const demoTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const demoModeRef = useRef(false);
 
   const cleanupTimers = () => {
     if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
     if (heartbeat.current) clearInterval(heartbeat.current);
     reconnectTimer.current = null;
     heartbeat.current = null;
+    demoTimers.current.forEach(clearTimeout);
+    demoTimers.current = [];
   };
+
+  const startDemoMatch = useCallback((game: string, mode: string) => {
+    demoModeRef.current = true;
+    cleanupTimers();
+    setError(null);
+    ticketRef.current = `demo-${Math.random().toString(36).slice(2, 8)}`;
+    setStatus("queued");
+    const steps: { delay: number; update: QueueUpdate }[] = [
+      { delay: 200, update: { position: 7, estimatedWait: 18, poolSize: 142, mmrBand: 50 } },
+      { delay: 1500, update: { position: 4, estimatedWait: 12, poolSize: 138, mmrBand: 75 } },
+      { delay: 3000, update: { position: 2, estimatedWait: 6, poolSize: 144, mmrBand: 100 } },
+      { delay: 4500, update: { position: 1, estimatedWait: 2, poolSize: 140, mmrBand: 125 } },
+    ];
+    steps.forEach(({ delay, update }, i) => {
+      demoTimers.current.push(
+        setTimeout(() => {
+          if (i === 0) setQueue(update);
+          else setQueue(update);
+        }, delay),
+      );
+    });
+    demoTimers.current.push(
+      setTimeout(() => {
+        const handles = ["NeonViper", "GhostByte", "PixelWraith", "VoidRunner", "QuantumFox"];
+        const pick = () => handles[Math.floor(Math.random() * handles.length)];
+        setMatch({
+          matchId: `demo-${Date.now()}`,
+          game,
+          mode,
+          players: [
+            { handle: "You", rating: 1820 },
+            { handle: pick(), rating: 1795 + Math.floor(Math.random() * 60) },
+          ],
+          server: "demo-edge-1 (simulated)",
+        });
+        setStatus("matched");
+        ticketRef.current = null;
+      }, 6000),
+    );
+  }, []);
 
   const connect = useCallback(() => {
     intentionalCloseRef.current = false;
@@ -156,7 +200,12 @@ export function useMatchmaking(opts: MatchmakingOptions = {}) {
         setStatus("disconnected");
         return;
       }
-      // Reconnect with backoff if we were queued or connecting
+      // After 2 failed attempts with no successful open, fall back to demo
+      if (retriesRef.current >= 2 && lastJoinRef.current) {
+        setError("Backend unreachable — running demo simulation.");
+        startDemoMatch(lastJoinRef.current.game, lastJoinRef.current.mode);
+        return;
+      }
       if (retriesRef.current < maxRetries) {
         const attempt = retriesRef.current + 1;
         retriesRef.current = attempt;
@@ -169,7 +218,7 @@ export function useMatchmaking(opts: MatchmakingOptions = {}) {
         setError("Connection lost. Please retry.");
       }
     };
-  }, [url, token, maxRetries]);
+  }, [url, token, maxRetries, startDemoMatch]);
 
   const join = useCallback(
     (game: string, mode: string) => {
@@ -192,9 +241,12 @@ export function useMatchmaking(opts: MatchmakingOptions = {}) {
         JSON.stringify({ type: "cancel", ticketId: ticketRef.current }),
       );
     }
+    cleanupTimers();
+    demoModeRef.current = false;
     lastJoinRef.current = null;
     ticketRef.current = null;
     setQueue(null);
+    setMatch(null);
     setStatus("idle");
   }, []);
 
